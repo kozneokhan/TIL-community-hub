@@ -77,14 +77,15 @@ router.post('/sign-in', async (req, res, next) => {
     }
 
     // 4. 로그인에 성공한다면, 사용자에게 JWT를 발급합니다.
-    const token = jwt.sign(
-        {
-            userId: user.userId,
-        },
-        'customized_secret_key' //잠시 평문, 비밀 키, .dotenv를 이용해서, 외부엣서 코드를 보더라도, 알 수 없도록 구현해야합니다.
-    );
+    req.session.userId = user.userId;
+    // const token = jwt.sign(
+    //     {
+    //         userId: user.userId,
+    //     },
+    //     'customized_secret_key' //잠시 평문, 비밀 키, .dotenv를 이용해서, 외부엣서 코드를 보더라도, 알 수 없도록 구현해야합니다.
+    // );
 
-    res.cookie('authorization', `Bearer ${token}`);
+    // res.cookie('authorization', `Bearer ${token}`); 생략
     return res.status(200).json({ message: '로그인에 성공했습니다.' });
 });
 
