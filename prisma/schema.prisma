@@ -21,8 +21,22 @@ model Users {
   UserInfos UserInfos? // 1명의 사용자는 1개의 사용자 정보를 가진다.
   Posts Posts[] // 1명의 사용자는 n개의 게시글을 작성할 수 있다.
   Comments Comments[] // 1명의 사용자는 여러개의 댓글을 작성할 수 있다. 
+  UserHistories UserHistories[]
 
   @@map("Users")
+}
+
+model UserHistories {
+  userHistoryId String @id @default(uuid()) @map("userHistoryId")
+  UserId Int @map("UserId")
+  changedField String @map("changedField")
+  oldValue String? @map("oldValue")
+  newValue String @map("newValue")
+  changeAt DateTime @default(now()) @map("changeAt")
+
+  User Users @relation(fields: [UserId], references:[userId], onDelete: Cascade)
+
+    @@map("UserHistories")
 }
 
 model Posts {

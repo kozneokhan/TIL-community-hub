@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../src/utils/prisma/index.js';
 import authMiddleware from '../src/middlewares/auth.middleware.js';
+import { Prisma } from '@prisma/client';
 
 const router = express.Router();
 
@@ -26,20 +27,32 @@ router.post('/sign-up', async (req, res, next) => {
         // 3. **Users** 테이블에 `email`, `password`를 이용해 사용자를 생성합니다.
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const user = await prisma.users.create({
-            data: { email, password: hashedPassword },
-        });
+        const [user, userInfo] = await prisma.$transaction(
+            async (tx) => {
+                // 3. **Users** 테이블에 `email`, `password`를 이용해 사용자를 생성합니다.
+                const hashedPassword = await bcrypt.hash(password, 10);
 
-        // 4. **UserInfos** 테이블에 `name`, `age`, `gender`, `profileImage`를 이용해 사용자 정보를 생성합니다.
-        const userInfo = await prisma.userInfos.create({
-            data: {
-                UserId: user.userId,
-                name,
-                age,
-                gender: gender.toUpperCase(), // 전달받은 gender를 전부 대문자로 치환한다.
-                profileImage,
+                const user = await tx.users.create({
+                    data: { email, password: hashedPassword },
+                });
+
+                // 4. **UserInfos** 테이블에 `name`, `age`, `gender`, `profileImage`를 이용해 사용자 정보를 생성합니다.
+                const userInfo = await tx.userInfos.create({
+                    data: {
+                        UserId: user.userId,
+                        name,
+                        age,
+                        gender: gender.toUpperCase(), // 전달받은 gender를 전부 대문자로 치환한다.
+                        profileImage,
+                    },
+                });
+
+                return [user, userInfo];
             },
-        });
+            {
+                isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+            }
+        );
 
         return res.status(201).json({ message: '회원가입이 완료되었습니다.' });
     } catch (err) {
@@ -105,4 +118,56 @@ router.get('/users', authMiddleware, async (req, res, next) => {
     return res.status(200).json({ data: user });
 });
 
+// 사용자 정보 변경 API
+router.patch('/users', authMiddleware, async (req, res, next) => {
+    // 1. 게시글을 작성하려는 클라이언트가 로그인된 사용자인지 검증합니다.
+    const { userId } = req.user;
+
+    // 2. 변경할 사용자 정보 `name`, `age`, `gender`, `profileImage`를 **body**로 전달받습니다.
+    //const { name, age, gender, profileImage } = req.body;
+    const updatedData = req.body; // 최종 변경된 데이터를 비교하는 방식
+
+    // 3. **사용자 정보(UserInofes) 테이블**에서 **사용자의 정보들**을 수정합니다.
+    // 수정되기 전 사용자의 정보 데이터 조회
+    const userInfo = await prisma.userInfos.findFirst({
+        where: { UserId: +userId },
+    });
+
+    await prisma.$transaction(
+        async (tx) => {
+            // 사용자 정보를 수정
+            await tx.userInfos.update({
+                data: {
+                    ...updatedData,
+                },
+                where: { UserId: +userId },
+            });
+
+            // 4. 사용자의 **변경된 정보 이력**을 **사용자 히스토리(UserHistories)** 테이블에 저장합니다.
+            for (let key in updatedData) {
+                // 변경된 데이터가 있을 때에는,
+                if (userInfo[key] !== updatedData[key]) {
+                    // UserId Int @map("UserId")
+                    // changedField String @map("changedField")
+                    // oldValue String? @map("oldValue")
+                    // newValue String @map("newValue")
+                    await tx.userHistories.create({
+                        data: {
+                            UserId: +userId,
+                            changedField: key,
+                            oldValue: String(userInfo[key]), // 변경되기 전 사용자의 데이터
+                            newValue: String(updatedData[key]), // 변경되고 난 뒤의 사용자의 데이터
+                        },
+                    });
+                }
+            }
+        },
+        {
+            isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+        }
+    );
+
+    // 5. 사용자 정보 변경 API를 완료합니다.
+    return res.status(200).json({ message: '사용자 정보 변경에 성공하였습니다.' });
+});
 export default router;
